@@ -1,0 +1,282 @@
+{
+  "info": {
+    "name": "Content Broadcasting System API",
+    "description": "API endpoints for the Content Broadcasting System Assignment",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "1. Auth",
+      "item": [
+        {
+          "name": "Register Teacher",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "register"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"name\": \"Teacher 1\",\n    \"email\": \"teacher1@test.com\",\n    \"password\": \"password123\",\n    \"role\": \"teacher\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Register Principal",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "register"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"name\": \"Principal 1\",\n    \"email\": \"principal1@test.com\",\n    \"password\": \"password123\",\n    \"role\": \"principal\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "login"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"teacher1@test.com\",\n    \"password\": \"password123\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Get Profile (Me)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "me"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Content (Teacher)",
+      "item": [
+        {
+          "name": "Upload Content",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{teacherToken}}" }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "title", "value": "Maths File 1", "type": "text" },
+                { "key": "subject", "value": "maths", "type": "text" },
+                { "key": "description", "value": "Test description", "type": "text" },
+                { "key": "start_time", "value": "2026-04-26T00:00:00Z", "type": "text" },
+                { "key": "end_time", "value": "2026-04-30T00:00:00Z", "type": "text" },
+                { "key": "rotation_duration", "value": "5", "type": "text" },
+                { "key": "file", "type": "file", "src": "" }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/content/upload",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "content", "upload"]
+            }
+          }
+        },
+        {
+          "name": "Get My Uploads",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{teacherToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/content/my",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "content", "my"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Approval (Principal)",
+      "item": [
+        {
+          "name": "Get Pending Content",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{principalToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/content/pending",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "content", "pending"]
+            }
+          }
+        },
+        {
+          "name": "Get All Content",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{principalToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/content/all",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "content", "all"]
+            }
+          }
+        },
+        {
+          "name": "Approve Content",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{principalToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/approval/:id/approve",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "approval", ":id", "approve"],
+              "variable": [
+                { "key": "id", "value": "2fdce982-73b2-499c-9dae-82862d04afcf" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Reject Content",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{principalToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/approval/:id/reject",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "approval", ":id", "reject"],
+              "variable": [
+                { "key": "id", "value": "2fdce982-73b2-499c-9dae-82862d04afcf" }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"rejection_reason\": \"Not relevant\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Public Broadcast (Students)",
+      "item": [
+        {
+          "name": "Get Live Content by Teacher",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/content/live/2a60aeaf-6172-4124-b0ac-c6d0395de52f",
+              "host": ["{{baseUrl}}"],
+              "path": ["content", "live", "2a60aeaf-6172-4124-b0ac-c6d0395de52f"],
+              "variable": [
+                { "key": "teacherId", "value": "2a60aeaf-6172-4124-b0ac-c6d0395de52f" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Live Content by Teacher & Subject",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/content/live/2a60aeaf-6172-4124-b0ac-c6d0395de52f?subject=maths",
+              "host": ["{{baseUrl}}"],
+              "path": ["content", "live", "2a60aeaf-6172-4124-b0ac-c6d0395de52f"],
+              "query": [
+                { "key": "subject", "value": "maths" }
+              ],
+              "variable": [
+                { "key": "teacherId", "value": "2a60aeaf-6172-4124-b0ac-c6d0395de52f" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get All Live Content for Teacher",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/content/live/2a60aeaf-6172-4124-b0ac-c6d0395de52f/all",
+              "host": ["{{baseUrl}}"],
+              "path": ["content", "live", "2a60aeaf-6172-4124-b0ac-c6d0395de52f", "all"],
+              "variable": [
+                { "key": "teacherId", "value": "2a60aeaf-6172-4124-b0ac-c6d0395de52f" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Active Subjects",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/content/live/subjects",
+              "host": ["{{baseUrl}}"],
+              "path": ["content", "live", "subjects"]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "token",
+      "value": ""
+    },
+    {
+      "key": "teacherToken",
+      "value": ""
+    },
+    {
+      "key": "principalToken",
+      "value": ""
+    }
+  ]
+}

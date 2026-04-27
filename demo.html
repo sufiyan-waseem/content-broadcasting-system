@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Content Broadcasting System - DEMO</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f7f6; margin: 0; padding: 20px; color: #333; }
+        h1 { text-align: center; color: #2c3e50; }
+        .container { display: flex; gap: 20px; max-width: 1200px; margin: 0 auto; }
+        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); flex: 1; display: flex; flex-direction: column; gap: 15px; }
+        .card h2 { margin-top: 0; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+        .teacher-card h2 { color: #2980b9; }
+        .principal-card h2 { color: #c0392b; }
+        .student-card h2 { color: #27ae60; }
+        button { padding: 10px 15px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; color: white; transition: 0.2s; }
+        button:hover { opacity: 0.9; }
+        .btn-teacher { background-color: #2980b9; }
+        .btn-principal { background-color: #c0392b; }
+        .btn-student { background-color: #27ae60; }
+        input, textarea, select { padding: 8px; border: 1px solid #ccc; border-radius: 4px; width: 100%; box-sizing: border-box; }
+        .log-box { background: #1e1e1e; color: #00ff00; padding: 10px; border-radius: 5px; font-family: monospace; font-size: 12px; height: 150px; overflow-y: auto; white-space: pre-wrap; margin-top: auto; }
+        .hidden { display: none; }
+        .content-item { border: 1px solid #ddd; padding: 10px; margin-bottom: 10px; border-radius: 4px; background: #f9f9f9; }
+        .live-screen { background: black; color: white; height: 200px; display: flex; align-items: center; justify-content: center; border-radius: 8px; overflow: hidden; position: relative;}
+        .live-screen img { max-width: 100%; max-height: 100%; object-fit: contain; }
+    </style>
+</head>
+<body>
+
+    <h1>📡 Content Broadcasting System - Demo Dashboard</h1>
+    <p style="text-align: center; color: #666; margin-bottom: 30px;">
+        API Testing & Integration Dashboard
+    </p>
+
+    <div class="container">
+        <!-- TEACHER PANEL -->
+        <div class="card teacher-card">
+            <h2>👨‍🏫 Teacher Flow</h2>
+            <div id="teacher-login-section">
+                <input type="email" id="t-email" value="teacher1@test.com" placeholder="Email">
+                <input type="password" id="t-pass" value="password123" placeholder="Password">
+                <button class="btn-teacher" onclick="loginTeacher()">1. Login as Teacher</button>
+            </div>
+
+            <div id="teacher-upload-section" class="hidden">
+                <p>✅ Logged in as Teacher</p>
+                <input type="text" id="t-title" value="Maths Assignment 1" placeholder="Title">
+                <input type="text" id="t-subject" value="maths" placeholder="Subject">
+                <input type="file" id="t-file" accept="image/*">
+                <input type="datetime-local" id="t-start" title="Start Time">
+                <input type="datetime-local" id="t-end" title="End Time">
+                <button class="btn-teacher" onclick="uploadContent()">2. Upload Content</button>
+            </div>
+            <div class="log-box" id="t-log">Ready...</div>
+        </div>
+
+        <!-- PRINCIPAL PANEL -->
+        <div class="card principal-card">
+            <h2>🧑‍💼 Principal Flow</h2>
+            <div id="principal-login-section">
+                <input type="email" id="p-email" value="principal1@test.com" placeholder="Email">
+                <input type="password" id="p-pass" value="password123" placeholder="Password">
+                <button class="btn-principal" onclick="loginPrincipal()">3. Login as Principal</button>
+            </div>
+
+            <div id="principal-action-section" class="hidden">
+                <p>✅ Logged in as Principal</p>
+                <button class="btn-principal" onclick="getPending()">4. Fetch Pending Content</button>
+                <div id="pending-list" style="margin-top: 10px; max-height: 200px; overflow-y: auto;"></div>
+            </div>
+            <div class="log-box" id="p-log">Ready...</div>
+        </div>
+
+        <!-- STUDENT PANEL -->
+        <div class="card student-card">
+            <h2>📱 Student / Live Broadcast</h2>
+            <p>Students don't need to login!</p>
+            <input type="text" id="s-teacher-id" placeholder="Teacher ID (Auto-filled)" readonly>
+            <button class="btn-student" onclick="fetchLiveBroadcast()">5. View Live Broadcast</button>
+            
+            <div class="live-screen" id="live-screen">
+                <span id="live-text">Waiting for broadcast...</span>
+                <img id="live-image" class="hidden" src="" alt="Live Content">
+            </div>
+            <div class="log-box" id="s-log">Ready...</div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:3000';
+        let state = {
+            teacherToken: '',
+            principalToken: '',
+            teacherId: '',
+            latestContentId: ''
+        };
+
+        // Initialize datetime inputs to current time and tomorrow
+        window.onload = () => {
+            const now = new Date();
+            const tomorrow = new Date(now);
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            
+            // Format for datetime-local: YYYY-MM-DDThh:mm
+            const formatDT = (d) => d.toISOString().slice(0, 16);
+            document.getElementById('t-start').value = formatDT(now);
+            document.getElementById('t-end').value = formatDT(tomorrow);
+        };
+
+        function log(target, msg) {
+            const el = document.getElementById(target);
+            el.innerHTML += `\n> ${msg}`;
+            el.scrollTop = el.scrollHeight;
+        }
+
+        async function loginTeacher() {
+            try {
+                log('t-log', 'Logging in...');
+                const res = await fetch(`${API_URL}/api/auth/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        email: document.getElementById('t-email').value,
+                        password: document.getElementById('t-pass').value
+                    })
+                });
+                const data = await res.json();
+                if(data.success) {
+                    state.teacherToken = data.data.token;
+                    state.teacherId = data.data.user.id;
+                    document.getElementById('s-teacher-id').value = state.teacherId; // auto fill student panel
+                    log('t-log', `Success! Token saved.\nTeacher ID: ${state.teacherId}`);
+                    document.getElementById('teacher-login-section').classList.add('hidden');
+                    document.getElementById('teacher-upload-section').classList.remove('hidden');
+                } else {
+                    log('t-log', 'Failed: ' + data.message);
+                }
+            } catch (e) { log('t-log', 'Error: ' + e.message); }
+        }
+
+        async function uploadContent() {
+            try {
+                log('t-log', 'Uploading file...');
+                const fileInput = document.getElementById('t-file');
+                if(!fileInput.files[0]) { log('t-log', 'Please select a file first!'); return; }
+
+                const formData = new FormData();
+                formData.append('title', document.getElementById('t-title').value);
+                formData.append('subject', document.getElementById('t-subject').value);
+                
+                // Important: Convert local datetime to UTC ISO string for backend
+                const startTime = new Date(document.getElementById('t-start').value).toISOString();
+                const endTime = new Date(document.getElementById('t-end').value).toISOString();
+                
+                formData.append('start_time', startTime);
+                formData.append('end_time', endTime);
+                formData.append('rotation_duration', 5);
+                formData.append('file', fileInput.files[0]);
+
+                const res = await fetch(`${API_URL}/api/content/upload`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${state.teacherToken}` },
+                    body: formData
+                });
+                const data = await res.json();
+                if(data.success) {
+                    state.latestContentId = data.data.content.id;
+                    log('t-log', `Upload Success! Status: Pending.\nContent ID: ${data.data.content.id}`);
+                } else {
+                    log('t-log', 'Upload Failed: ' + data.message);
+                }
+            } catch (e) { log('t-log', 'Error: ' + e.message); }
+        }
+
+        async function loginPrincipal() {
+            try {
+                log('p-log', 'Logging in...');
+                const res = await fetch(`${API_URL}/api/auth/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        email: document.getElementById('p-email').value,
+                        password: document.getElementById('p-pass').value
+                    })
+                });
+                const data = await res.json();
+                if(data.success) {
+                    state.principalToken = data.data.token;
+                    log('p-log', 'Success! Token saved.');
+                    document.getElementById('principal-login-section').classList.add('hidden');
+                    document.getElementById('principal-action-section').classList.remove('hidden');
+                } else {
+                    log('p-log', 'Failed: ' + data.message);
+                }
+            } catch (e) { log('p-log', 'Error: ' + e.message); }
+        }
+
+        async function getPending() {
+            try {
+                log('p-log', 'Fetching pending content...');
+                const res = await fetch(`${API_URL}/api/content/pending`, {
+                    headers: { 'Authorization': `Bearer ${state.principalToken}` }
+                });
+                const data = await res.json();
+                if(data.success) {
+                    const list = document.getElementById('pending-list');
+                    list.innerHTML = '';
+                    if(data.data.content.length === 0) {
+                        list.innerHTML = '<p>No pending content!</p>';
+                        log('p-log', '0 pending items found.');
+                        return;
+                    }
+                    log('p-log', `Found ${data.data.content.length} pending items.`);
+                    
+                    data.data.content.forEach(c => {
+                        list.innerHTML += `
+                            <div class="content-item" id="item-${c.id}">
+                                <strong>${c.title}</strong> (${c.subject})<br>
+                                <small>By: ${c.uploader.name}</small><br>
+                                <button style="margin-top:5px; background: green;" onclick="approveContent('${c.id}')">Approve</button>
+                            </div>
+                        `;
+                    });
+                }
+            } catch (e) { log('p-log', 'Error: ' + e.message); }
+        }
+
+        async function approveContent(id) {
+            try {
+                log('p-log', `Approving ${id}...`);
+                const res = await fetch(`${API_URL}/api/approval/${id}/approve`, {
+                    method: 'PATCH',
+                    headers: { 'Authorization': `Bearer ${state.principalToken}` }
+                });
+                const data = await res.json();
+                if(data.success) {
+                    log('p-log', 'Approved successfully!');
+                    document.getElementById(`item-${id}`).style.display = 'none';
+                } else {
+                    log('p-log', 'Failed: ' + data.message);
+                }
+            } catch (e) { log('p-log', 'Error: ' + e.message); }
+        }
+
+        async function fetchLiveBroadcast() {
+            try {
+                if(!state.teacherId) { log('s-log', 'Teacher ID is missing. Login as teacher first.'); return; }
+                log('s-log', 'Fetching live content...');
+                
+                const res = await fetch(`${API_URL}/content/live/${state.teacherId}`);
+                const data = await res.json();
+                
+                const textEl = document.getElementById('live-text');
+                const imgEl = document.getElementById('live-image');
+
+                if(data.success && data.data.content) {
+                    log('s-log', `Live! Showing: ${data.data.content.title}`);
+                    textEl.classList.add('hidden');
+                    imgEl.src = API_URL + data.data.content.file_url;
+                    imgEl.classList.remove('hidden');
+                } else {
+                    log('s-log', 'No live content available.');
+                    imgEl.classList.add('hidden');
+                    textEl.classList.remove('hidden');
+                    textEl.innerText = "No content available.";
+                }
+            } catch (e) { log('s-log', 'Error: ' + e.message); }
+        }
+    </script>
+</body>
+</html>

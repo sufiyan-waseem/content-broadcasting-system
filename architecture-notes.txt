@@ -1,0 +1,290 @@
+CONTENT BROADCASTING SYSTEM – ARCHITECTURE NOTES
+==================================================
+Author: Sufiyan Waseem
+Date  : April 2026
+Stack : Node.js (Express), PostgreSQL, Sequelize ORM
+
+
+──────────────────────────────────────────────────────────────────────────────
+1. AUTHENTICATION & RBAC FLOW
+──────────────────────────────────────────────────────────────────────────────
+
+Authentication uses JSON Web Tokens (JWT).
+
+FLOW:
+  1. User registers with name, email, password, and role (teacher/principal).
+  2. Password is hashed using bcryptjs (salt rounds: 12) via a Sequelize
+     beforeCreate hook — password is NEVER stored in plain text.
+  3. On login, bcrypt.compare() validates the password against the stored hash.
+  4. A signed JWT (HS256) is issued containing: { id, email, role }.
+     Token expires in 7 days (configurable via JWT_EXPIRES_IN env var).
+  5. All protected routes use the `authenticate` middleware which:
+       - Extracts Bearer token from the Authorization header
+       - Verifies the JWT signature and expiry
+       - Fetches the full user record from the database
+       - Attaches user to req.user
+
+RBAC:
+  - The `authorize(...roles)` middleware factory enforces role-based access.
+  - Usage: authorize('principal') or authorize('teacher') or authorize('principal','teacher')
+  - If the user's role is not in the allowed list, a 403 Forbidden is returned.
+  - Roles are: 'teacher' and 'principal'.
+
+Security:
+  - Sensitive data (password_hash) is stripped from all JSON responses via
+    User.prototype.toJSON().
+  - Helmet.js is used to set secure HTTP headers.
+  - CORS is enabled (configurable for production).
+
+
+──────────────────────────────────────────────────────────────────────────────
+2. SUBJECT-BASED SYSTEM DESIGN
+──────────────────────────────────────────────────────────────────────────────
+
+Each content item belongs to a subject (e.g., "maths", "science").
+Subjects are stored in the `content_slots` table, which acts as a
+grouping entity for independent rotation per subject.
+
+When a teacher uploads content:
+  - The subject (normalized to lowercase) is saved on the Content record.
+  - A ContentSlot is auto-created or fetched (findOrCreate) for that subject.
+  - A ContentSchedule entry is created linking the content to its slot,
+    with a rotation_order and duration.
+
+This design decouples the subject grouping from individual content items,
+allowing multiple teachers to contribute to the same subject slot.
+
+Public API filtering:
+  - GET /content/live/:teacherId?subject=maths
+  - This filters active content by both teacher and subject simultaneously.
+
+
+──────────────────────────────────────────────────────────────────────────────
+3. UPLOAD HANDLING APPROACH
+──────────────────────────────────────────────────────────────────────────────
+
+Library: Multer (v2)
+
+Storage:
+  - Files are stored in the `uploads/` directory (local, relative to project root).
+  - Each file is renamed to a UUID + original extension to avoid collisions.
+  - Example: a2f5c3d1-...-4e9b.png
+
+Validation (enforced BEFORE the file is written to disk):
+  - fileFilter middleware checks both MIME type AND file extension.
+  - Allowed: image/jpeg, image/jpg, image/png, image/gif (.jpg, .jpeg, .png, .gif)
+  - File size limit: 10MB (configurable via MAX_FILE_SIZE env var)
+
+On upload failure:
+  - If validation passes but DB write fails, the uploaded file is deleted
+    from disk (cleanup in catch block of uploadContent controller).
+
+Files are served publicly via Express static middleware:
+  - Mounted at: /uploads/<filename>
+  - Helmet's crossOriginResourcePolicy is set to 'cross-origin' to allow
+    cross-origin file access.
+
+Bonus (S3):
+  - The upload middleware can be extended with multer-s3 for cloud storage.
+  - Simply replace diskStorage with S3Storage and set AWS credentials.
+
+
+──────────────────────────────────────────────────────────────────────────────
+4. APPROVAL WORKFLOW DESIGN
+──────────────────────────────────────────────────────────────────────────────
+
+Content Lifecycle States:
+  pending → approved
+  pending → rejected
+
+Rules:
+  - Only users with role='principal' can approve or reject.
+  - Rejection MUST include a rejection_reason (mandatory field).
+  - Once rejected, content cannot be directly approved — teacher must re-upload.
+  - Once approved, content.status is set to 'approved', approved_by = principal's ID,
+    and approved_at = current timestamp.
+  - If approved and has start_time/end_time, a ContentSchedule entry is
+    created/confirmed automatically.
+
+API:
+  PATCH /api/approval/:id/approve  → approve
+  PATCH /api/approval/:id/reject   → reject (body: { rejection_reason })
+
+Guards:
+  - authenticate + authorize('principal') middlewares protect both endpoints.
+
+
+──────────────────────────────────────────────────────────────────────────────
+5. SCHEDULING / ROTATION LOGIC (MOST IMPORTANT)
+──────────────────────────────────────────────────────────────────────────────
+
+Design Goal:
+  Determine WHICH content is currently active for a given teacher+subject
+  WITHOUT any cron jobs, background workers, or database state mutations.
+  The result must be DETERMINISTIC for any given moment in time.
+
+Algorithm (Pure Math – Time-Based Modulo Rotation):
+
+  Step 1: Fetch all APPROVED content for the teacher+subject where:
+            start_time <= NOW <= end_time
+          These are "in-window" and "live".
+
+  Step 2: Sort content by rotation_order (from ContentSchedule table).
+
+  Step 3: Compute total cycle duration:
+            totalCycle = SUM of duration(i) for each content item  [in minutes]
+
+  Step 4: Compute position in the current cycle:
+            minutesSinceEpoch = floor(now.getTime() / 60000)
+            positionInCycle   = minutesSinceEpoch % totalCycle
+
+  Step 5: Iterate through content items in order, accumulating duration.
+          When: positionInCycle < accumulated_duration → that item is ACTIVE.
+
+Example with 3 Maths items (5 min each, totalCycle = 15):
+  - Minute 0-4   → Content A
+  - Minute 5-9   → Content B
+  - Minute 10-14 → Content C
+  - Minute 15    → loops back to Content A (modulo 15 = 0)
+
+This approach is:
+  ✓ Stateless (no DB writes needed per request)
+  ✓ Deterministic (two simultaneous requests get same result)
+  ✓ Looping (modulo ensures seamless rotation)
+  ✓ Scalable (can handle thousands of concurrent requests)
+
+Edge Case Handling:
+  - No approved content → return { message: "No content available", content: null }
+  - Approved but outside time window → not included in query (returns null)
+  - No start_time/end_time → content is NOT active (per spec: "Without
+    start_time/end_time → content is not active")
+  - Invalid/unknown subject → empty response (not an error, per spec)
+  - Single content item → returned directly without rotation math
+
+
+──────────────────────────────────────────────────────────────────────────────
+6. DATABASE DESIGN DECISIONS
+──────────────────────────────────────────────────────────────────────────────
+
+Tables:
+  users              – All users (principal + teacher), role stored as ENUM
+  content            – All content items with lifecycle fields
+  content_slots      – One row per unique subject (maths, science, etc.)
+  content_schedule   – Maps content to slot with rotation_order and duration
+
+Key Decisions:
+  - UUID primary keys (UUIDV4): More secure, avoids enumerable IDs in URLs.
+  - ENUM for role and file_type: Enforces data integrity at DB level.
+  - start_time/end_time on Content: Teacher directly controls visibility window.
+  - rotation_duration on Content + duration on ContentSchedule:
+      Content.rotation_duration = default set by teacher at upload time.
+      ContentSchedule.duration  = effective duration used in rotation logic.
+  - approved_by / approved_at: Full audit trail of who approved and when.
+  - rejection_reason: Stored on Content table for easy teacher visibility.
+  - Indexes: email (unique), uploaded_by, status, subject — for fast queries 
+    on the most common filter patterns.
+
+Foreign Keys:
+  Content.uploaded_by  → users.id
+  Content.approved_by  → users.id   (nullable)
+  ContentSchedule.content_id → content.id
+  ContentSchedule.slot_id    → content_slots.id
+
+
+──────────────────────────────────────────────────────────────────────────────
+7. FOLDER STRUCTURE
+──────────────────────────────────────────────────────────────────────────────
+
+  src/
+  ├── config/
+  │   └── database.js          → Sequelize connection setup
+  ├── controllers/
+  │   ├── auth.controller.js   → Register, Login, GetMe
+  │   ├── content.controller.js→ Upload, GetMy, GetAll, GetPending, GetById
+  │   ├── approval.controller.js→ Approve, Reject
+  │   └── broadcast.controller.js→ GetLive (public), GetAllLive, GetSubjects
+  ├── middlewares/
+  │   ├── auth.middleware.js   → authenticate (JWT) + authorize (RBAC)
+  │   ├── upload.middleware.js → Multer config + error handler
+  │   └── error.middleware.js  → Global error handler + 404 handler
+  ├── models/
+  │   ├── index.js             → Model associations registry
+  │   ├── User.js              → User model
+  │   ├── Content.js           → Content model
+  │   ├── ContentSlot.js       → Subject slot model
+  │   └── ContentSchedule.js  → Schedule/rotation model
+  ├── routes/
+  │   ├── auth.routes.js
+  │   ├── content.routes.js
+  │   ├── approval.routes.js
+  │   └── broadcast.routes.js
+  ├── services/
+  │   └── scheduling.service.js→ Core rotation/scheduling logic
+  ├── utils/
+  │   └── helpers.js           → JWT generator, response builders
+  └── app.js                   → Express app setup
+
+  server.js                    → Entry point (DB sync + listen)
+  uploads/                     → Local file storage
+
+
+──────────────────────────────────────────────────────────────────────────────
+8. MIDDLEWARE USAGE
+──────────────────────────────────────────────────────────────────────────────
+
+Per-Request Middlewares (applied globally):
+  - helmet()         → Secure HTTP headers (XSS, clickjacking protection)
+  - cors()           → Cross-Origin Resource Sharing
+  - morgan('dev')    → HTTP request logging
+  - express.json()   → Parse JSON request bodies
+
+Route-Level Middlewares:
+  - authenticate     → Verify JWT and attach user (all protected routes)
+  - authorize(role)  → Enforce role (principal/teacher specific routes)
+  - upload.single()  → Multer file handling (upload route only)
+  - handleUploadError→ Multer-specific error formatter (after upload)
+  - broadcastLimiter → Rate limit (public broadcast routes only)
+
+Error Middlewares (last in chain):
+  - notFound         → 404 for unmatched routes
+  - errorHandler     → Catches all next(err) calls globally
+
+
+──────────────────────────────────────────────────────────────────────────────
+9. SCALABILITY APPROACH
+──────────────────────────────────────────────────────────────────────────────
+
+Current Implementation:
+  - Connection pooling via Sequelize (max: 10 connections)
+  - Stateless JWT auth (horizontally scalable, no sessions)
+  - Deterministic scheduling (no cron workers needed)
+  - Rate limiting on public endpoints (prevents abuse)
+
+Future Scalability Options:
+  1. Redis Caching:
+     - Cache GET /content/live/:teacherId responses with a short TTL (e.g., 30s).
+     - Dramatically reduces DB reads under high student traffic.
+     - Invalidate cache on approval/rejection events.
+
+  2. Message Queues (e.g., BullMQ + Redis):
+     - Queue file upload processing (virus scanning, thumbnail generation).
+     - Queue notification events (teacher notified when content approved).
+
+  3. AWS S3 Storage:
+     - Replace local file storage with S3 buckets.
+     - Enables multi-instance deployment without shared filesystem concerns.
+     - Use CloudFront CDN to serve files to students globally with low latency.
+
+  4. Database Optimization:
+     - Add DB indexes on (uploaded_by, status, subject, start_time, end_time)
+       for fast scheduling queries as data grows.
+     - Partition the content table by date/subject for very large datasets.
+
+  5. Horizontal Scaling:
+     - Since scheduling is stateless (no DB writes per request), the API is
+       trivially horizontally scalable behind a load balancer.
+
+
+==================================================
+END OF ARCHITECTURE NOTES
+==================================================
