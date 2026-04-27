@@ -269,7 +269,8 @@ Content items are sorted by `rotation_order` and the active item is found by wal
 
 ## 🚀 Deployment
 
-> The API is ready to be deployed.
+> The API is live and successfully deployed on Render:
+> **Base URL:** [https://content-broadcasting-system-tr6b.onrender.com](https://content-broadcasting-system-tr6b.onrender.com)
 
 ---
 

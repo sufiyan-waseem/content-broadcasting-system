@@ -264,7 +264,7 @@
   "variable": [
     {
       "key": "baseUrl",
-      "value": "http://localhost:3000"
+      "value": "https://content-broadcasting-system-tr6b.onrender.com"
     },
     {
       "key": "token",
